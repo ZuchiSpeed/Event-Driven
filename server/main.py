@@ -4,6 +4,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from redis_om import get_redis_connection, HashModel
 
+import consumers
+
 
 app = FastAPI()
 
@@ -35,11 +37,34 @@ class Event(HashModel):
     
     class Meta:
         database = redis
+  
+#If Id is available get Id else load empty object        
+@app.get('deliveries/{pk}/status')
+async def get_status(pk: str):
+    state = redis.get(f'delivery: {pk}')
+    
+    if state is not None:
+        return json.loads(state)
+    
+    return {}
         
+#Create a Post request which creates a new Delivery object and Event object, store Id in the redis chache
 @app.post('/deliveries/create')
 async def create(request: Request):
     body = await request.json()
     delivery = Delivery(budget=body['data']['budget'], notes=body['data']['notes']).save()
     event = Event(delivery_id=delivery.pk, type=body['type'], data=json.dumps(body['data'])).save()
-    return event
-    
+    state = consumers.CONSUMERS[event.type]({}, event)
+    redis.set(f'delivery:{delivery.pk}', json.dumps(state))
+    return state
+
+#Post an Event object which returns an updated state sent by the Id
+@app.post('/event')
+async def event(request: Request):
+    body = await request.json()
+    delivery_id = body['delivery_id']
+    event = Event(delivery_id=body['delivery_id'], type=body['type'], data=json.dumps(body['data'])).save()
+    state = await get_status(delivery_id)
+    new_state = consumers.CONSUMERS[event.type](state, event)
+    redis.set(f'delivery:{delivery_id}', json.dumps(new_state))
+    return new_state
