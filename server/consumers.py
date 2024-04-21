@@ -1,4 +1,6 @@
 import json
+from fastapi import HTTPException
+
 
 def create_delivery(state, event):
     data = json.loads(event.data)
@@ -10,6 +12,9 @@ def create_delivery(state, event):
     }
     
 def start_delivery(state, event):
+    if state["status"] != "ready":
+        raise HTTPException(status_code=400, detail="Delivery is already active")
+    
     return state | {
         "status": "active"
     }
@@ -17,6 +22,9 @@ def start_delivery(state, event):
 def pickup_products(state, event):
     data = json.loads(event.data)
     new_budget = int(state["budget"]) - int(data["purchase_price"]) * int(data["quantity"])
+    
+    if new_budget < 0:
+        raise HTTPException(status_code=400, detail="Not enough budget")
     
     return state | {
         "budget": new_budget,
@@ -29,6 +37,9 @@ def deliver_products(state, event):
     data = json.loads(event.data)
     new_budget = int(state["budget"]) + int(data["purchase_price"]) * int(data["quantity"])
     new_quantity = state["quantity"] - int(data["quantity"])
+    
+    if new_quantity < 0:
+        raise HTTPException(status_code=400, detail="Not enough quantity")
 
     return state | {
         "budget": new_budget,
@@ -37,10 +48,16 @@ def deliver_products(state, event):
         "status": "completed"
     }
     
+def increase_budget(state, event):
+    data = json.loads(event.data)
+    state["budget"] += int(data["budget"])
+    return state
+    
 #Used to call functions dynamically instead of static function calls
 CONSUMERS = {
     "CREATE_DELIVERY": create_delivery,
     "START_DELIVERY": start_delivery,
     "PICKUP_PRODUCTS": pickup_products,
-    "DELIVER_PRODUCTS": deliver_products
+    "DELIVER_PRODUCTS": deliver_products,
+    "INCREASE_BUDGET": increase_budget
 }
