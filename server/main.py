@@ -41,12 +41,25 @@ class Event(HashModel):
 #If Id is available get Id else load empty object        
 @app.get('deliveries/{pk}/status')
 async def get_status(pk: str):
+    #product key from radis
     state = redis.get(f'delivery: {pk}')
     
     if state is not None:
         return json.loads(state)
     
     return {}
+
+#Rebuilding a state if we didn't get a product key from Radis
+def build_state(pk: str):
+    pks = Event.all_pks()
+    all_event = [Event.get(pk) for pk in pks]
+    events = [event for event in all_event if event.delivery_id == pk]
+    state = {}
+    
+    for event in events:
+        state = consumers.CONSUMERS[event.type](state, event)
+        
+    return state
         
 #Create a Post request which creates a new Delivery object and Event object, store Id in the redis chache
 @app.post('/deliveries/create')
